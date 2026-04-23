@@ -1,3 +1,6 @@
+# preprocessed data (generated from preprocced_data.py, so redundant to include)
+data/preprocessed/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
