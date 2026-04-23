@@ -227,3 +227,6 @@ __marimo__/
 *.blg
 *.run.xml
 *.bcf
+
+
+data/
