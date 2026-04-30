@@ -27,7 +27,7 @@ def eda_peaks(series):
     peaks, _ = find_peaks(series.values)
     return len(peaks)
 
-# Reads a person's preprocessed biosignal file and extracts 30s window features.
+# Reads a person's preprocessed biosignal file, normalizes the raw signal and extracts features.
 def extract_features(file_path: Path) -> pd.DataFrame:
     
     # Load data and set the datetime index
@@ -35,28 +35,40 @@ def extract_features(file_path: Path) -> pd.DataFrame:
     df['time'] = pd.to_datetime(df['time'])
     df = df.set_index('time')
     
-    # Extract the person ID from the filename (e.g., "Person1_D1_1_1234")
     person_id = file_path.stem
+
+    # Baseline Normalization
+    signals = ['BVP', 'HR', 'EDA', 'TEMP']
+    
+    # Isolate Phase 1 (Baseline) across all rounds for this specific person
+    baseline_data = df[df['phase'] == 'phase1'][signals]
+    
+    if not baseline_data.empty:
+        # Calculate baseline mean and std directly from the raw 16Hz signal
+        b_mean = baseline_data.mean()
+        b_std = baseline_data.std().replace(0, 1e-8) # Defense against sensor flatlines
+        
+        # Apply Z-score normalization to the entire signal (Phase 1, 2, and 3)
+        df[signals] = (df[signals] - b_mean) / b_std
+    else:
+        print(f"  Warning: No phase1 data for {person_id}. Extracting features from raw signal.")
     
     # Group by round and phase to prevent "bleeding" across experimental boundaries
     # Then resample the time index into 30-second tumbling windows
     windowed = df.groupby(['round', 'phase']).resample(WINDOW_SIZE)
     
-    # Calculate statistics for each window
-    # We start with just EDA mean and standard deviation
+    # 3. Calculate statistics for each window (These are now features of the NORMALIZED signal)
     features = windowed.agg({
         'BVP': ['mean', 'std', 'max', 'min'],
-        'HR': ['mean', 'std', 'max', 'min'], # Could add a helper function to get the frequency domain HR signal here
+        'HR': ['mean', 'std', 'max', 'min'], 
         'EDA': ['mean', 'std', 'max', 'min', eda_peaks],
         'TEMP': [temp_slope]
     })
     
-    # Clean up the multi-level columns created by .agg()
-    # This turns ('EDA', 'mean') into 'eda_mean'
+    # 4. Clean up the multi-level columns created by .agg()
     features.columns = [f"{col[0].lower()}_{col[1]}" for col in features.columns]
     
-    # Clean up the index
-    # Resampling creates windows where there might be no data
+    # 5. Clean up the index
     features = features.dropna()
     features = features.reset_index()
     
@@ -93,66 +105,11 @@ def build_feature_dataset():
     print(f"Total 30-second windows generated: {len(final_dataset)}")
     print(f"Dataset saved to: {output_path}\n")
 
-# Normalization of extracted features from biosignal data
-
-FEATURE_DIR = REPO_ROOT / "data" / "features"
-
-def normalize_by_baseline(input_csv: str = "biosignal_features_30s.csv", 
-                          output_csv: str = "biosignal_features_30s_baseline_norm.csv",
-                          baseline_phase: str = "phase1"):
-    
-    file_path = FEATURE_DIR / input_csv
-    print(f"Loading unnormalized features from {file_path}...")
-    df = pd.read_csv(file_path)
-    
-    metadata_cols = ['subject_id', 'time', 'round', 'phase']
-    # Drop metadata and ensure we only grab numeric columns
-    numeric_df = df.drop(columns=metadata_cols, errors='ignore').select_dtypes(include=[np.number])
-    feature_cols = numeric_df.columns.tolist()
-    
-    df_normalized = df.copy()
-
-    # Cast target columns to float so Pandas allows us to insert decimals
-    df_normalized[feature_cols] = df_normalized[feature_cols].astype(float)
-    
-    print(f"Normalizing {len(feature_cols)} features using '{baseline_phase}' as the baseline...")
-    
-    # Process each subject individually
-    for subject, group in df.groupby('subject_id'):
-        
-        # Isolate this specific subject's baseline data
-        baseline_data = group[group['phase'] == baseline_phase][feature_cols]
-        
-        # If a subject somehow doesn't have phase1 data, skip or warn
-        if baseline_data.empty:
-            print(f"  Warning: No baseline ({baseline_phase}) data for {subject}. Skipping normalization.")
-            continue
-            
-        # Calculate baseline mean and standard deviation
-        b_mean = baseline_data.mean()
-        b_std = baseline_data.std()
-        
-        # Edge Case Defense: If a sensor flatlines, std becomes 0. 
-        # Division by zero creates NaNs. We replace 0s with a tiny number.
-        b_std = b_std.replace(0, 1e-8)
-        
-        # Apply the transformation to ALL phases for this subject
-        normalized_features = (group[feature_cols] - b_mean) / b_std
-        
-        # Insert the normalized values back into our main dataframe
-        df_normalized.loc[group.index, feature_cols] = normalized_features
-
-    # Save the final dataset
-    out_path = FEATURE_DIR / output_csv
-    df_normalized.to_csv(out_path, index=False)
-    print(f"Success! Normalized dataset saved to {out_path}\n")
-
 # Normalization of the raw responses data
 
 RESPONSES_DIR = REPO_ROOT / "data" / "preprocessed" / "responses"
-FEATURE_DIR = REPO_ROOT / "data" / "features"
 
-def normalize_responses_by_baseline(output_csv: str = "responses_features_baseline_norm.csv",
+def normalize_responses_by_baseline(output_csv: str = "responses_features.csv",
                                     baseline_phase: str = "phase1"):
     
     print(f"Scanning for response files in {RESPONSES_DIR}...")
@@ -212,6 +169,8 @@ def normalize_responses_by_baseline(output_csv: str = "responses_features_baseli
     print(f"Success! Normalized responses dataset saved to {out_path}")
 
 if __name__ == "__main__":
-    build_feature_dataset()
-    normalize_by_baseline()
+    # Load raw biosignals, then normalize signal, then extract features
+    build_feature_dataset() 
+    
+    # Load questionnaire responses then normalize features via mean subtraction
     normalize_responses_by_baseline()
