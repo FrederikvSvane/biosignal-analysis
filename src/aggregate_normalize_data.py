@@ -114,10 +114,16 @@ def normalize_responses_by_baseline(output_csv: str = "responses_features.csv",
     
     print(f"Scanning for response files in {RESPONSES_DIR}...")
     
-    # Load and combine all individual response files
+    # 1. Load and combine all individual response files
     all_responses = []
     for file_path in RESPONSES_DIR.glob("*.csv"):
         df = pd.read_csv(file_path)
+        
+        # The filename looks like "Person1_D1_1_1234_responses.csv"
+        # We strip "_responses" to make it match the biosignal 'subject_id' exactly
+        global_subject_id = file_path.stem.replace("_responses", "")
+        df.insert(0, 'subject_id', global_subject_id)
+        
         all_responses.append(df)
         
     if not all_responses:
@@ -127,8 +133,8 @@ def normalize_responses_by_baseline(output_csv: str = "responses_features.csv",
     combined_df = pd.concat(all_responses, ignore_index=True)
     
     # Define metadata and features
-    # 'difficulty' is explicitly excluded because it has no phase1 baseline
-    metadata_cols = ['round', 'phase', 'participant_ID', 'puzzler', 'team_ID', 'E4_nr', 'difficulty']
+    # Add our new 'subject_id' to the metadata so it doesn't get normalized
+    metadata_cols = ['subject_id', 'round', 'phase', 'participant_ID', 'puzzler', 'team_ID', 'E4_nr', 'difficulty']
     
     # Select only numeric columns for normalization, dropping metadata
     numeric_df = combined_df.drop(columns=metadata_cols, errors='ignore').select_dtypes(include=[np.number])
@@ -136,11 +142,13 @@ def normalize_responses_by_baseline(output_csv: str = "responses_features.csv",
     
     df_normalized = combined_df.copy()
     
+    # Cast target columns to float to hold the mean-centered decimal values
+    df_normalized[feature_cols] = df_normalized[feature_cols].astype(float)
+    
     print(f"Normalizing {len(feature_cols)} emotion features using '{baseline_phase}' as the baseline...")
     
-    # Process each participant individually
-    # Grouping by participant_ID to handle their specific psychological baseline
-    for subject, group in combined_df.groupby('participant_ID'):
+    # Group by our new globally unique 'subject_id' instead of 'participant_ID'
+    for subject, group in combined_df.groupby('subject_id'):
         
         # Isolate this specific subject's baseline data
         baseline_data = group[group['phase'] == baseline_phase][feature_cols]
@@ -152,9 +160,6 @@ def normalize_responses_by_baseline(output_csv: str = "responses_features.csv",
         # Calculate baseline mean
         b_mean = baseline_data.mean()
 
-        # NOTE: We ignore the Standard Deviation to avoid the divide by zero error and since they should
-        # all already be on the same scale
-        
         # Apply the transformation to ALL phases for this subject
         normalized_features = group[feature_cols] - b_mean
         
