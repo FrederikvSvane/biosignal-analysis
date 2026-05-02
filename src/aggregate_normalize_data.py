@@ -159,9 +159,10 @@ def normalize_responses_by_baseline(output_csv: str = "responses_features.csv",
             
         # Calculate baseline mean
         b_mean = baseline_data.mean()
+        b_std = baseline_data.std().replace(0, 1e-8)
 
         # Apply the transformation to ALL phases for this subject
-        normalized_features = group[feature_cols] - b_mean
+        normalized_features = (group[feature_cols] - b_mean) / b_std
         
         # Insert the normalized values back into our main dataframe
         df_normalized.loc[group.index, feature_cols] = normalized_features

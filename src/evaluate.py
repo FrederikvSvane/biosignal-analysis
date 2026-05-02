@@ -33,7 +33,10 @@ def run_evaluation():
         resp_df = pd.read_csv(RESPONSES_CSV)
         # We only care about how they felt during the puzzle (Phase 2)
         p2_df = resp_df[resp_df['phase'] == 'phase2']
-        emotions = ['frustrated', 'difficulty', 'nervous']
+        emotions = [
+            'upset', 'hostile', 'alert', 'ashamed', 'inspired', 'nervous', 
+            'determined', 'attentive', 'afraid', 'active', 'frustrated', 'difficulty'
+        ]
         # Group by subject and average across all rounds
         grouped_resp = p2_df.groupby('subject_id')[emotions].mean().reset_index()
         
@@ -103,7 +106,7 @@ def run_evaluation():
         sns.set_theme(style="ticks")
 
         models = [('GMM_Separation', 'GMM', '#E88854', '#E86E54'), ('SVM_Separation', 'SVM', '#9a0000', '#E8A254')]
-        emotions = ['frustrated', 'difficulty', 'nervous']
+        emotions = ['active', 'nervous', 'frustrated'] # The top three most correlated emotions
 
         for row_idx, (col_name, model_name, scatter_color, line_color) in enumerate(models):
             for col_idx, emotion in enumerate(emotions):
@@ -137,6 +140,37 @@ def run_evaluation():
         plt.suptitle('Physiological Anomaly vs. Psychological Reality', fontsize=16, y=1.02)
         plt.tight_layout()
         plt.savefig("report/figures/responses_correlation.pdf")
+
+        # RANKED CORRELATIONS ACROSS ALL EMOTIONS
+        print("\nALL EMOTIONS RANKED BY CORRELATION STRENGTH")
+        
+        for col_name, model_name in [('GMM_Separation', 'GMM'), ('SVM_Separation', 'SVM')]:
+            print(f"\n {model_name} Anomaly Jump vs. Self-Reported Emotions")
+            
+            # Create an empty list to store the results for this specific model
+            model_results = []
+            
+            for emotion in emotions:
+                valid_data = df[[col_name, emotion]].dropna()
+                if len(valid_data) > 1:
+                    r_val = valid_data[col_name].corr(valid_data[emotion])
+                    r_squared = r_val ** 2
+                    
+                    # Append a dictionary with the stats so we can sort it easily
+                    model_results.append({
+                        'emotion': emotion,
+                        'r': r_val,
+                        'r2': r_squared,
+                        'abs_r': abs(r_val) # We save the absolute value specifically for sorting
+                    })
+            
+            # Sort the results by the absolute correlation (highest to lowest)
+            model_results.sort(key=lambda x: x['abs_r'], reverse=True)
+            
+            # Print out the ranked list with clean formatting
+            for rank, res in enumerate(model_results, start=1):
+                # The :<12 forces the emotion names to line up in a neat column
+                print(f"{rank:2d}. {res['emotion'].capitalize():<12} | r = {res['r']:+.2f}  |  R^2 = {res['r2']:.2f}")
 
 if __name__ == "__main__":
     run_evaluation()
