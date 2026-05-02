@@ -62,7 +62,7 @@ def extract_features(file_path: Path) -> pd.DataFrame:
         'BVP': ['mean', 'std', 'max', 'min'],
         'HR': ['mean', 'std', 'max', 'min'], 
         'EDA': ['mean', 'std', 'max', 'min', eda_peaks],
-        'TEMP': [temp_slope]
+        'TEMP': ['mean', 'std', 'max', 'min', temp_slope]
     })
     
     # 4. Clean up the multi-level columns created by .agg()
