@@ -62,7 +62,7 @@ def extract_features(file_path: Path) -> pd.DataFrame:
         'BVP': ['mean', 'std', 'max', 'min'],
         'HR': ['mean', 'std', 'max', 'min'], 
         'EDA': ['mean', 'std', 'max', 'min', eda_peaks],
-        'TEMP': [temp_slope]
+        'TEMP': ['mean', 'std', 'max', 'min', temp_slope]
     })
     
     # 4. Clean up the multi-level columns created by .agg()
@@ -159,9 +159,10 @@ def normalize_responses_by_baseline(output_csv: str = "responses_features.csv",
             
         # Calculate baseline mean
         b_mean = baseline_data.mean()
+        b_std = baseline_data.std().replace(0, 1e-8)
 
         # Apply the transformation to ALL phases for this subject
-        normalized_features = group[feature_cols] - b_mean
+        normalized_features = (group[feature_cols] - b_mean) / b_std
         
         # Insert the normalized values back into our main dataframe
         df_normalized.loc[group.index, feature_cols] = normalized_features
