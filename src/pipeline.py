@@ -21,6 +21,7 @@ A note on realness:
     Edit: On later thought, this could be solved by having the subject perform a "resting phase calibration" protocol.
 """
 
+import argparse
 from collections.abc import Iterator
 from enum import Enum
 from pathlib import Path
@@ -91,39 +92,29 @@ def score_anomalies(pipe: Pipeline, X_test: np.ndarray) -> np.ndarray:
 
 
 def plot_loso_2d(folds: list, model_name: str) -> None:
-    # Each entry in `folds`: (subject, Z_train, Z_test, y_test, fitted_pipe, auroc).
-    # Z_* are already in 2D PCA space, so we can draw a real decision-surface contour
-    # by sweeping the model step alone over a meshgrid.
     import matplotlib.pyplot as plt
 
-    n = len(folds)
     cols = 6
-    rows = (n + cols - 1) // cols
+    rows = -(-len(folds) // cols)
     fig, axes = plt.subplots(rows, cols, figsize=(cols * 2.6, rows * 2.6), squeeze=False)
+    axes = axes.ravel()
 
-    for ax, (subject, Z_train, Z_test, y_test, pipe, auroc) in zip(axes.ravel(), folds):
-        all_pts = np.vstack([Z_train, Z_test])
-        pad = 0.5
-        x_min, x_max = all_pts[:, 0].min() - pad, all_pts[:, 0].max() + pad
-        y_min, y_max = all_pts[:, 1].min() - pad, all_pts[:, 1].max() + pad
-        xx, yy = np.meshgrid(np.linspace(x_min, x_max, 80), np.linspace(y_min, y_max, 80))
-        grid = np.c_[xx.ravel(), yy.ravel()]
-
+    for ax, (subject, Z_train, Z_test, y_test, pipe, auroc) in zip(axes, folds):
+        pts = np.vstack([Z_train, Z_test])
+        (x0, y0), (x1, y1) = pts.min(axis=0) - 0.5, pts.max(axis=0) + 0.5
+        xx, yy = np.meshgrid(np.linspace(x0, x1, 80), np.linspace(y0, y1, 80))
         model = pipe.named_steps["model"]
-        if hasattr(model, "score_samples"):
-            zz = -model.score_samples(grid)
-        else:
-            zz = -model.decision_function(grid)
-        zz = zz.reshape(xx.shape)
+        scorer = model.score_samples if hasattr(model, "score_samples") else model.decision_function
+        zz = (-scorer(np.c_[xx.ravel(), yy.ravel()])).reshape(xx.shape)
 
         ax.contourf(xx, yy, zz, levels=15, cmap="RdBu_r", alpha=0.6)
-        ax.scatter(Z_train[:, 0], Z_train[:, 1], s=2, c="grey", alpha=0.3)
-        ax.scatter(Z_test[y_test == 0, 0], Z_test[y_test == 0, 1], s=8, c="blue", label="rest")
-        ax.scatter(Z_test[y_test == 1, 0], Z_test[y_test == 1, 1], s=8, c="red", label="puzzle")
+        ax.scatter(*Z_train.T, s=2, c="grey", alpha=0.3)
+        ax.scatter(*Z_test[y_test == 0].T, s=8, c="blue", label="rest")
+        ax.scatter(*Z_test[y_test == 1].T, s=8, c="red", label="puzzle")
         ax.set_title(f"{subject.split('_')[0]} — {auroc:.2f}", fontsize=8)
         ax.set_xticks([]); ax.set_yticks([])
 
-    for ax in axes.ravel()[n:]:
+    for ax in axes[len(folds):]:
         ax.axis("off")
 
     fig.suptitle(f"{model_name.upper()} anomaly score in 2D PCA space (red = anomalous)", fontsize=11)
@@ -143,8 +134,18 @@ def build_model(name: str) -> BaseEstimator:
 
 
 if __name__ == "__main__":
-    MODEL = "ocsvm"  # "gmm" | "ocsvm"
-    PCA_MODE = PCAMode.TWO_D  # set to TWO_D to auto-render the per-subject 2D plot
+    parser = argparse.ArgumentParser(description="LOSO anomaly detection over biosignal windows.")
+    parser.add_argument("--model", choices=["ocsvm", "gmm"], default="ocsvm")
+    parser.add_argument(
+        "--pca",
+        choices=["none", "var95", "2d"],
+        default="var95",
+        help="none = skip PCA, var95 = keep 95%% variance, 2d = reduce to 2D (also renders the per-subject plot)",
+    )
+    args = parser.parse_args()
+
+    MODEL = args.model
+    PCA_MODE = {"none": PCAMode.NONE, "var95": PCAMode.VAR95, "2d": PCAMode.TWO_D}[args.pca]
 
     df = load_features()
     feat_cols = feature_columns(df)

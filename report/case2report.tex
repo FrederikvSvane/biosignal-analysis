@@ -38,6 +38,8 @@
 \usepackage{lipsum}
 \usepackage{url}
 \usepackage[backend=biber,style=ieee]{biblatex}
+\usepackage{amsfonts}
+\usepackage{bbm}
 
 
 % --- set footer and header ---
@@ -227,25 +229,60 @@ As mentioned in the Missing values section, we are working with categorical resp
 This is how we performed our model validation and estimated the EPE
 
 \section*{Results}
-This is my chosen model (the best model).... Those are our results and our estimate of the EPE (given
-as an estimate of RMSE).
+To evaluate how well the models seperate rest from puzzle we use the AUROC (Area Under the Receiver Operating Characteristic curve) as our main metric. Each model gives every 30 second window an anomaly score, and the ROC-curve is obtained by sweeping a threshold over those scores and plotting the true positive rate against the false positive rate. The AUROC is then the area under that curve. A nice property is that it has a direct probabilistic interpretation: it is the probability that a randomly drawn puzzle window gets a higher anomaly score than a randomly drawn resting window. With $\mathcal{P}$ denoting the set of puzzle windows and $\mathcal{R}$ the resting windows, this can be written as
+\begin{equation}
+    \mathrm{AUROC} = \frac{1}{|\mathcal{P}||\mathcal{R}|} \sum_{i \in \mathcal{P}} \sum_{j \in \mathcal{R}} \left(\mathbbm{1}_{\{s_i > s_j\}} + \tfrac{1}{2}\,\mathbbm{1}_{\{s_i = s_j\}}\right),
+\end{equation}
+where $s_i$ is the anomaly score for window $i$ and $\mathbbm{1}_{\{\cdot\}}$ is the indicator function (1 if the condition holds, 0 otherwise). The reason it takes exactly this form is that it is the empirical version of the probability $\mathbb{P}(s_i > s_j)$ for a randomly drawn puzzle window $i$ and resting window $j$: we are simply looping over all possible $(i, j)$ pairs, counting how often the puzzle window scores higher, and dividing by the total number of pairs $|\mathcal{P}||\mathcal{R}|$. Ties are split in half so a model that gives every window the same score gets exactly 0.5, matching the chance baseline. So a value of 1.0 means perfect ranking, 0.5 is random guessing, and below 0.5 means the model ranks the wrong way around.
 
+We ran both models through the LOSO protocol described above, and tried three different feature setups: the raw 30 second feature vector (\textit{none}), a PCA projection keeping 95\% of the variance (\textit{var95}), and a 2D PCA projection (\textit{2d}). For each setup we report the mean per-subject AUROC and the pooled AUROC across all 26 held-out subjects in table~\ref{tab:auroc}. The mean AUROC is just the average of the per-subject scores, while the pooled AUROC is computed by stacking all the anomaly scores and labels from every fold and computing one ROC-curve over the lot. The two numbers tell us slightly different things: the mean treats each person equally, while the pooled score is closer to "if we deployed this model on the whole population, how well would it rank rest vs. puzzle on average".
+
+\begin{table}[H]
+    \centering
+    \begin{tabular}{llcc}
+        \toprule
+        Model & PCA & Mean AUROC & Pooled AUROC \\
+        \midrule
+        OC-SVM & none  & 0.470 & 0.481 \\
+        OC-SVM & var95 & 0.481 & 0.491 \\
+        OC-SVM & 2d    & 0.593 & 0.585 \\
+        GMM    & none  & \textbf{0.626} & \textbf{0.622} \\
+        GMM    & var95 & 0.598 & 0.595 \\
+        GMM    & 2d    & 0.585 & 0.582 \\
+        \bottomrule
+    \end{tabular}
+    \caption{LOSO performance for both models across the three PCA configurations. Higher is better, 0.5 is chance.}
+    \label{tab:auroc}
+\end{table}
+
+The GMM clearly does better than the OC-SVM baseline. On the full feature space the OC-SVM is basically guessing (mean AUROC 0.470), while the GMM gets a mean of 0.626 and a near-identical pooled AUROC of 0.622. Interestingly the two models react to PCA in opposite ways: squashing the features down to 2D actually helps the OC-SVM a lot ($0.470 \rightarrow 0.593$), while the same projection hurts the GMM ($0.626 \rightarrow 0.585$). Our interpretation is that the RBF-kernel SVM is sensitive to noisy or redundant features, so cutting down to 2 components effectively denoises the input. The GMM on the other hand actually uses the extra variance, so dropping components throws away useful structure. Based on this we pick the \textbf{GMM with no PCA} as our final model.
+
+\subsection*{Per-subject behaviour}
+The aggregate AUROC numbers hide a lot of variation between subjects. For our chosen model the per-subject AUROCs range from 0.43 (Person19) to 0.79 (Person9), with 21 out of 26 subjects above chance and 5 below. The model works best on Person9 (0.79), Person10 (0.74), Person17 (0.72), Person25 (0.72) and Person21 (0.71), and worst on Person19 (0.43), Person5 (0.46) and Person2 (0.48). The standard deviation across subjects is around 0.10, which means that even though the average looks decent, the model can still fail on a new person. This spread is really the dominant uncertainty in our EPE estimate, and is something we come back to in the discussion.
+
+\subsection*{Flagging rate per phase}
+Beyond AUROC (which only cares about ranking) it is useful to look at how often each model actually flags a window as anomalous. Figure~\ref{fig:phase_anomalies} shows, for each experimental phase, the percentage of windows that ended up above the model's anomaly threshold, averaged across all 26 subjects (with error bars showing the spread between subjects). Both models flag around 16-18\% of the resting windows in P1, which is roughly what we would expect since the threshold is calibrated on resting data. The flagging rate then jumps to about 30\% in P2 (puzzle), confirming that the puzzle phase looks meaningfully different from rest to both models. The interesting bit is P3 (recovery): the SVM actually flags \textit{more} windows here than during the puzzle (around 36\%), while the GMM stays at the puzzle level. One explanation is that the body does not fully return to baseline immediately after the puzzle, i.e. heart rate and EDA decay over time, so what we labelled as "recovery" is biosignal-wise still elevated. The error bars are large though, so we should not over-interpret the difference between the two models.
 
 \begin{figure}[H]
 \begin{adjustwidth}{-1cm}{-1cm}
     \centering
     \includegraphics[width=0.8\linewidth]{figures/phase_anomalies.pdf}
-    \caption{Caption}
-    \label{fig:responses_correction}
+    \caption{Average percentage of 30 second windows flagged as anomalous, broken down by experimental phase and model. Error bars indicate the standard deviation across the 26 subjects.}
+    \label{fig:phase_anomalies}
 \end{adjustwidth}
 \end{figure}
+
+\subsection*{Anomaly scores vs. self-reported emotions}
+A natural sanity check is to ask whether the windows the model flags as anomalous correspond to people actually feeling stressed. We do this by computing, for each subject, the change in mean anomaly score between P1 and P2 ("anomaly jump") and correlating it against the change in their self-reported emotion ratings between the same two phases. Figure~\ref{fig:responses_correlation} shows this for three of the response categories, \textit{Active}, \textit{Nervous} and \textit{Frustrated}, with both models on separate rows.
+
+The strongest correlation is between the GMM anomaly jump and the change in reported \textit{Active} ($r = -0.42$, $R^2 = 0.18$). The negative sign is interesting: subjects whose biosignals look more anomalous during the puzzle actually report feeling \textit{less} active. One way to read this is that the model is picking up on a sympathetic nervous system response (high HR, high EDA) that the subjects themselves perceive as being drained or tense rather than energized. \textit{Nervous} shows a weak positive trend ($r = +0.23$ for GMM), in the direction one would expect, but with a tiny $R^2$ it is not really statistically meaningful. \textit{Frustrated} is essentially flat for both models, suggesting that frustration is decoupled from the autonomic signals we measure. Across the board the GMM correlations are stronger than the SVM ones, which is consistent with the AUROC results in table~\ref{tab:auroc}.
 
 \begin{figure}[H]
 \begin{adjustwidth}{-2cm}{-2cm}
     \centering
     \includegraphics[width=0.99\linewidth]{figures/responses_correlation.pdf}
-    \caption{Caption}
-    \label{fig:responses_correction}
+    \caption{Per-subject correlation between the model's anomaly score jump (P2 - P1) and the change in self-reported emotion (P2 - P1) for three response categories. Top row: GMM. Bottom row: OC-SVM. Each dot is one subject; the shaded band is the 95\% confidence interval of the linear fit.}
+    \label{fig:responses_correlation}
 \end{adjustwidth}
 \end{figure}
 
