@@ -30,16 +30,16 @@ ii) Test the model on their "puzzling" periods, and see if it flags them as unus
 
 5. Modelling: For each of the 26 persons (leave-one-subject-out scheme, which is what the assignment calls the "Generalization Challenge"): Train an anomaly detector on all the 25 other people from the experiment (only their resting phases), then score the held-out person's puzzle-phase windows under the trained model. Higher score = more "unlike resting".
 
-    The case description requires that we use at least one method from weeks 8-12, and One-Class SVM (week 7) and Isolation Forest (week 6) don't qualify...
+    The case description requires that we use at least one method from weeks 8-12, and One-Class SVM (week 7) doesn't qualify...
     So we should incoorporate a GMM and some PCA aswell:
 
     i) A GMM (Gaussian Mixture Model, week 9) as the primary anomaly detector.
 
     ii) PCA (week 8) on the windowed features before fitting the GMM. This gives a low-dimensional space to fit the mixture in, and produces an interpretable decomposition figure for the report.
 
-    iii) Then compare against the One-Class SVM and Isolation Forest under the exact same protocol, so we can show we picked the curriculum method deliberately and benchmarked it.
+    iii) Then compare against the One-Class SVM under the exact same protocol, so we can show we picked the curriculum method deliberately and benchmarked it against a sensible baseline.
 
-6. Evaluation: We want to see how correct and confident the model is in its classifications. A ROC (Receiver Operating Characteristic) curve is exactly the right tool for this. More specifically the AUROC (Area Under ROC), with 0.5 being random change and 1.0 being perfect seperation and confidence. We report it per-person, since leave-one-subject-out shows if the model generalizes across people. We also report it pooled across all people, to get one number to compare the GMM against the SVM and Isolation Forest.
+6. Evaluation: We want to see how correct and confident the model is in its classifications. A ROC (Receiver Operating Characteristic) curve is exactly the right tool for this. More specifically the AUROC (Area Under ROC), with 0.5 being random change and 1.0 being perfect seperation and confidence. We report it per-person, since leave-one-subject-out shows if the model generalizes across people. We also report it pooled across all people, to get one number to compare the GMM against the SVM.
 
 7. Visualization: Reuse the system-card figure from `visualize_data.py`, adding a fifth panel below the four biosignal panels that overlays the model's anomaly score along the same stitched timeline. Phase shading is already there, so whether the score rises during phase2 is visually obvious. Pick a couple of representative persons (one where it works, one where it doesn't) for the report.
 
