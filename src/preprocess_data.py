@@ -41,6 +41,8 @@ SIGNALS = ("BVP", "EDA", "HR", "TEMP")
 
 def prepare_signal(phase_dir: Path, signal: str) -> pd.DataFrame:
     df = pd.read_csv(phase_dir / f"{signal}.csv")
+    if df.isnull().any().any()==True:
+        print(f'{df.isnull().sum()} missing values in {phase_dir} {signal} ')
     df["time"] = pd.to_datetime(df["time"], format="mixed")
     df = df.set_index("time").sort_index()[[signal]]
 
@@ -71,6 +73,9 @@ RESPONSE_COLUMN_RENAMES = {
 
 def build_response_dataframe(phase_dir: Path) -> pd.DataFrame:
     df = pd.read_csv(phase_dir / "response.csv")
+    if df.isnull().any().any()==True:
+        missing_cols = df.columns[df.isnull().any()]
+        print(f'{df.isnull().sum().sum()} missing values in {phase_dir} responses cols: {(", ").join(missing_cols)}')
     df = df.drop(columns=["index", "Unnamed: 0"], errors="ignore")
     df = df.rename(columns=RESPONSE_COLUMN_RENAMES)
     df.insert(0, "round", phase_dir.parent.name)
